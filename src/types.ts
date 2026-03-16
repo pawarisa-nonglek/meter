@@ -9,6 +9,8 @@ export interface TOUData {
   customerName: string;
   customerNumber: string;
   peaMeterNumber: string;
+  readingMonth: string;
+  readingYear: string;
   readings: {
     [key: string]: {
       handwritten?: number;

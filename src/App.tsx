@@ -13,10 +13,20 @@ import {
   ArrowLeft,
   FileText,
   Save,
-  Loader2
+  Loader2,
+  Download,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TOUData, TOU_CODES } from './types';
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
+import { UserOptions } from 'jspdf-autotable';
+
+// Extend jsPDF with autoTable
+interface jsPDFWithAutoTable extends jsPDF {
+  autoTable: (options: UserOptions) => jsPDF;
+}
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -31,8 +41,12 @@ export default function App() {
   const [customerName, setCustomerName] = useState('');
   const [customerNumber, setCustomerNumber] = useState('');
   const [peaMeterNumber, setPeaMeterNumber] = useState('');
+  const [readingMonth, setReadingMonth] = useState<string>(new Date().getMonth() + 1 + '');
+  const [readingYear, setReadingYear] = useState<string>((new Date().getFullYear() + 543).toString());
   const [isEditing, setIsEditing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [filterMonth, setFilterMonth] = useState<string>(''); // YYYY-MM
+  const [filterYear, setFilterYear] = useState<string>(''); // YYYY
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -196,6 +210,8 @@ export default function App() {
       customerName,
       customerNumber,
       peaMeterNumber,
+      readingMonth,
+      readingYear,
       readings: currentData.readings || {},
       analysis: currentData.analysis as any,
       imageUrl: image || undefined
@@ -212,13 +228,59 @@ export default function App() {
     setCustomerName('');
     setCustomerNumber('');
     setPeaMeterNumber('');
+    setReadingMonth(new Date().getMonth() + 1 + '');
+    setReadingYear((new Date().getFullYear() + 543).toString());
   };
 
-  const filteredHistory = history.filter(item => 
-    item.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.customerNumber.includes(searchQuery) ||
-    item.peaMeterNumber.includes(searchQuery)
-  );
+  const exportToPDF = (data: TOUData[] = filteredHistory) => {
+    const doc = new jsPDF() as jsPDFWithAutoTable;
+    
+    // Add Thai font support would be ideal, but for now we'll use standard fonts
+    // Note: Standard PDF fonts don't support Thai characters well. 
+    // In a real app, we'd embed a Thai font.
+    
+    doc.setFontSize(18);
+    doc.text("TOU Meter Reading Report", 14, 22);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${new Date().toLocaleString('th-TH')}`, 14, 30);
+
+    const tableData = data.map(item => [
+      `${item.readingMonth}/${item.readingYear}`,
+      item.customerName,
+      item.customerNumber,
+      item.peaMeterNumber,
+      item.analysis.sumPeakMatch ? "Pass" : "Fail"
+    ]);
+
+    doc.autoTable({
+      startY: 40,
+      head: [['Month/Year', 'Customer Name', 'Customer ID', 'Meter ID', '111 Match']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [20, 20, 20] }
+    });
+
+    doc.save(`tou-report-${new Date().getTime()}.pdf`);
+  };
+
+  const filteredHistory = history.filter(item => {
+    const matchesSearch = 
+      item.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.customerNumber.includes(searchQuery) ||
+      item.peaMeterNumber.includes(searchQuery);
+    
+    const matchesMonth = filterMonth ? item.readingMonth === filterMonth : true;
+    const matchesYear = filterYear ? item.readingYear === filterYear : true;
+    
+    return matchesSearch && matchesMonth && matchesYear;
+  });
+
+  const MONTHS_TH = [
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+  ];
 
   return (
     <div className="min-h-screen bg-[#F5F5F0] text-[#141414] font-sans">
@@ -332,6 +394,33 @@ export default function App() {
                           placeholder="ระบุหมายเลขมิเตอร์"
                         />
                       </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">ประจำเดือน</label>
+                          <select 
+                            value={readingMonth}
+                            onChange={(e) => setReadingMonth(e.target.value)}
+                            className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
+                          >
+                            {MONTHS_TH.map((m, i) => (
+                              <option key={i+1} value={i+1}>{m}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">ปี พ.ศ.</label>
+                          <select 
+                            value={readingYear}
+                            onChange={(e) => setReadingYear(e.target.value)}
+                            className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
+                          >
+                            {Array.from({ length: 5 }).map((_, i) => {
+                              const year = new Date().getFullYear() + 543 - i;
+                              return <option key={year} value={year.toString()}>{year}</option>;
+                            })}
+                          </select>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -355,6 +444,10 @@ export default function App() {
                         <div>
                           <p className="text-xs text-black/40">หมายเลขมิเตอร์</p>
                           <p className="text-sm font-bold truncate">{peaMeterNumber || '-'}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-black/40">งวดเดือน/ปี</p>
+                          <p className="text-sm font-bold truncate">{MONTHS_TH[parseInt(readingMonth)-1]} {readingYear}</p>
                         </div>
                       </div>
                     </div>
@@ -401,15 +494,60 @@ export default function App() {
               exit={{ opacity: 0, x: -20 }}
               className="space-y-6"
             >
-              <div className="bg-white rounded-2xl p-4 shadow-sm border border-black/5 flex items-center gap-3">
-                <Search className="text-black/20" size={20} />
-                <input 
-                  type="text" 
-                  placeholder="ค้นหาตามชื่อ, หมายเลขผู้ใช้ หรือหมายเลขมิเตอร์..."
-                  className="bg-transparent border-none focus:ring-0 w-full text-sm"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1 bg-white rounded-2xl p-4 shadow-sm border border-black/5 flex items-center gap-3">
+                  <Search className="text-black/20" size={20} />
+                  <input 
+                    type="text" 
+                    placeholder="ค้นหาตามชื่อ, หมายเลขผู้ใช้ หรือหมายเลขมิเตอร์..."
+                    className="bg-transparent border-none focus:ring-0 w-full text-sm"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                
+                <div className="flex gap-2">
+                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-black/5 flex items-center gap-2">
+                    <Calendar size={18} className="text-black/20" />
+                    <select 
+                      className="bg-transparent border-none focus:ring-0 text-sm font-medium pr-8"
+                      value={filterMonth}
+                      onChange={(e) => {
+                        setFilterMonth(e.target.value);
+                      }}
+                    >
+                      <option value="">ทุกเดือน</option>
+                      {MONTHS_TH.map((m, i) => (
+                        <option key={i+1} value={i+1}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-black/5 flex items-center gap-2">
+                    <select 
+                      className="bg-transparent border-none focus:ring-0 text-sm font-medium pr-8"
+                      value={filterYear}
+                      onChange={(e) => {
+                        setFilterYear(e.target.value);
+                      }}
+                    >
+                      <option value="">ทุกปี</option>
+                      {Array.from({ length: 5 }).map((_, i) => {
+                        const year = new Date().getFullYear() + 543 - i;
+                        return <option key={year} value={year.toString()}>{year}</option>;
+                      })}
+                    </select>
+                  </div>
+
+                  <button 
+                    onClick={() => exportToPDF()}
+                    className="bg-[#141414] text-white rounded-2xl px-6 py-4 font-bold flex items-center gap-2 hover:bg-black/90 transition-all shadow-sm"
+                    title="ดาวน์โหลดรายงาน PDF"
+                  >
+                    <Download size={20} />
+                    <span className="hidden sm:inline">รายงาน</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid gap-4">
@@ -430,7 +568,7 @@ export default function App() {
                         <div>
                           <h3 className="font-bold">{item.customerName}</h3>
                           <p className="text-xs text-black/40 uppercase tracking-wider font-medium">
-                            {item.customerNumber} • {new Date(item.timestamp).toLocaleDateString('th-TH')}
+                            {item.customerNumber} • {MONTHS_TH[parseInt(item.readingMonth)-1]} {item.readingYear}
                           </p>
                         </div>
                       </div>
@@ -537,6 +675,8 @@ export default function App() {
                     customerName: formData.get('customerName') as string,
                     customerNumber: formData.get('customerNumber') as string,
                     peaMeterNumber: formData.get('peaMeterNumber') as string,
+                    readingMonth: formData.get('readingMonth') as string,
+                    readingYear: formData.get('readingYear') as string,
                     readings: updatedReadings
                   };
                   updateHistoryItem(updatedItem);
@@ -562,6 +702,19 @@ export default function App() {
                         <input name="customerName" defaultValue={selectedHistory.customerName} className="w-full text-sm font-bold bg-[#F5F5F0] rounded-lg px-3 py-2 border-none focus:ring-1 focus:ring-black" />
                         <input name="customerNumber" defaultValue={selectedHistory.customerNumber} className="w-full text-sm font-bold bg-[#F5F5F0] rounded-lg px-3 py-2 border-none focus:ring-1 focus:ring-black" />
                         <input name="peaMeterNumber" defaultValue={selectedHistory.peaMeterNumber} className="w-full text-sm font-bold bg-[#F5F5F0] rounded-lg px-3 py-2 border-none focus:ring-1 focus:ring-black" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <select name="readingMonth" defaultValue={selectedHistory.readingMonth} className="w-full text-xs bg-[#F5F5F0] rounded-lg px-2 py-2 border-none focus:ring-1 focus:ring-black">
+                            {MONTHS_TH.map((m, i) => (
+                              <option key={i+1} value={i+1}>{m}</option>
+                            ))}
+                          </select>
+                          <select name="readingYear" defaultValue={selectedHistory.readingYear} className="w-full text-xs bg-[#F5F5F0] rounded-lg px-2 py-2 border-none focus:ring-1 focus:ring-black">
+                            {Array.from({ length: 5 }).map((_, i) => {
+                              const year = new Date().getFullYear() + 543 - i;
+                              return <option key={year} value={year.toString()}>{year}</option>;
+                            })}
+                          </select>
+                        </div>
                       </div>
                     ) : (
                       <>
@@ -576,6 +729,10 @@ export default function App() {
                         <div>
                           <p className="text-sm font-bold">{selectedHistory.peaMeterNumber}</p>
                           <p className="text-xs text-black/40">หมายเลขมิเตอร์ PEA</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold">{MONTHS_TH[parseInt(selectedHistory.readingMonth)-1]} {selectedHistory.readingYear}</p>
+                          <p className="text-xs text-black/40">งวดเดือน/ปี</p>
                         </div>
                       </>
                     )}
