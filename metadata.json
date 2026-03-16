@@ -1,0 +1,7 @@
+{
+  "name": "TOU Meter Reader Pro",
+  "description": "แอปพลิเคชันตรวจสอบการอ่านหน่วยมิเตอร์ TOU พร้อมระบบวิเคราะห์ข้อมูลและบันทึกประวัติ",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
