@@ -19,14 +19,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TOUData, TOU_CODES } from './types';
-import { jsPDF } from "jspdf";
-import "jspdf-autotable";
-import { UserOptions } from 'jspdf-autotable';
-
-// Extend jsPDF with autoTable
-interface jsPDFWithAutoTable extends jsPDF {
-  autoTable: (options: UserOptions) => jsPDF;
-}
+import { exportToExcel } from './utils/exportUtils';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -230,39 +223,6 @@ export default function App() {
     setPeaMeterNumber('');
     setReadingMonth(new Date().getMonth() + 1 + '');
     setReadingYear((new Date().getFullYear() + 543).toString());
-  };
-
-  const exportToPDF = (data: TOUData[] = filteredHistory) => {
-    const doc = new jsPDF() as jsPDFWithAutoTable;
-    
-    // Add Thai font support would be ideal, but for now we'll use standard fonts
-    // Note: Standard PDF fonts don't support Thai characters well. 
-    // In a real app, we'd embed a Thai font.
-    
-    doc.setFontSize(18);
-    doc.text("TOU Meter Reading Report", 14, 22);
-    
-    doc.setFontSize(11);
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${new Date().toLocaleString('th-TH')}`, 14, 30);
-
-    const tableData = data.map(item => [
-      `${item.readingMonth}/${item.readingYear}`,
-      item.customerName,
-      item.customerNumber,
-      item.peaMeterNumber,
-      item.analysis.sumPeakMatch ? "Pass" : "Fail"
-    ]);
-
-    doc.autoTable({
-      startY: 40,
-      head: [['Month/Year', 'Customer Name', 'Customer ID', 'Meter ID', '111 Match']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [20, 20, 20] }
-    });
-
-    doc.save(`tou-report-${new Date().getTime()}.pdf`);
   };
 
   const filteredHistory = history.filter(item => {
@@ -540,12 +500,12 @@ export default function App() {
                   </div>
 
                   <button 
-                    onClick={() => exportToPDF()}
-                    className="bg-[#141414] text-white rounded-2xl px-6 py-4 font-bold flex items-center gap-2 hover:bg-black/90 transition-all shadow-sm"
-                    title="ดาวน์โหลดรายงาน PDF"
+                    onClick={() => exportToExcel(filteredHistory)}
+                    className="bg-emerald-600 text-white rounded-2xl px-6 py-4 font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-sm"
+                    title="ดาวน์โหลดรายงาน Excel"
                   >
-                    <Download size={20} />
-                    <span className="hidden sm:inline">รายงาน</span>
+                    <FileText size={20} />
+                    <span className="hidden sm:inline">Excel</span>
                   </button>
                 </div>
               </div>
