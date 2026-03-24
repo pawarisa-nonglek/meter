@@ -36,6 +36,8 @@ export default function App() {
   const [peaMeterNumber, setPeaMeterNumber] = useState('');
   const [readingMonth, setReadingMonth] = useState<string>(new Date().getMonth() + 1 + '');
   const [readingYear, setReadingYear] = useState<string>((new Date().getFullYear() + 543).toString());
+  const [readingDate, setReadingDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [resetCount, setResetCount] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [filterMonth, setFilterMonth] = useState<string>(''); // YYYY-MM
@@ -100,6 +102,7 @@ export default function App() {
         - Customer Name (ชื่อผู้ใช้ไฟฟ้า)
         - Customer Number (หมายเลขผู้ใช้ไฟฟ้า)
         - PEA Meter Number (หมายเลขมิเตอร์ PEA)
+        - Number of Resets (จำนวนครั้งที่ RESET)
         
         For codes 015, 016, 017, 118, try to identify both "handwritten" (ลายมือ) and "printed" (พิมพ์) values if present.
         If only one value is present, assume it is the "printed" value unless it clearly looks like handwriting.
@@ -109,7 +112,8 @@ export default function App() {
           "customerInfo": {
             "customerName": "string",
             "customerNumber": "string",
-            "peaMeterNumber": "string"
+            "peaMeterNumber": "string",
+            "resetCount": "string"
           },
           "readings": {
             "CODE": { "value": number, "handwritten": number, "printed": number }
@@ -139,6 +143,7 @@ export default function App() {
         setCustomerName(result.customerInfo.customerName || '');
         setCustomerNumber(result.customerInfo.customerNumber || '');
         setPeaMeterNumber(result.customerInfo.peaMeterNumber || '');
+        setResetCount(result.customerInfo.resetCount || '');
       }
       
       analyzeData(result.readings || {});
@@ -205,6 +210,8 @@ export default function App() {
       peaMeterNumber,
       readingMonth,
       readingYear,
+      readingDate,
+      resetCount,
       readings: currentData.readings || {},
       analysis: currentData.analysis as any,
       imageUrl: image || undefined
@@ -221,8 +228,10 @@ export default function App() {
     setCustomerName('');
     setCustomerNumber('');
     setPeaMeterNumber('');
+    setResetCount('');
     setReadingMonth(new Date().getMonth() + 1 + '');
     setReadingYear((new Date().getFullYear() + 543).toString());
+    setReadingDate(new Date().toISOString().split('T')[0]);
   };
 
   const filteredHistory = history.filter(item => {
@@ -313,136 +322,172 @@ export default function App() {
               </section>
 
               {/* Form Section */}
-              {currentData && (
-                <motion.section 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="grid md:grid-cols-2 gap-8"
+              <div className="grid md:grid-cols-2 gap-8">
+                {/* Customer Info Section (Always Visible) */}
+                <motion.div 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="bg-white rounded-3xl p-8 shadow-sm border border-black/5 space-y-6"
                 >
-                  <div className="bg-white rounded-3xl p-8 shadow-sm border border-black/5 space-y-6">
-                    <h2 className="text-lg font-bold flex items-center gap-2">
-                      <FileText size={20} /> ข้อมูลผู้ใช้ไฟฟ้า
-                    </h2>
-                    <div className="space-y-4">
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <FileText size={20} /> ข้อมูลผู้ใช้ไฟฟ้า
+                  </h2>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">ชื่อผู้ใช้ไฟฟ้า</label>
+                      <input 
+                        type="text" 
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
+                        placeholder="ระบุชื่อ"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">หมายเลขผู้ใช้ไฟฟ้า</label>
+                      <input 
+                        type="text" 
+                        value={customerNumber}
+                        onChange={(e) => setCustomerNumber(e.target.value)}
+                        className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
+                        placeholder="ระบุหมายเลข"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">หมายเลขมิเตอร์ PEA</label>
+                      <input 
+                        type="text" 
+                        value={peaMeterNumber}
+                        onChange={(e) => setPeaMeterNumber(e.target.value)}
+                        className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
+                        placeholder="ระบุหมายเลขมิเตอร์"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">จำนวนครั้งที่ RESET</label>
+                      <input 
+                        type="text" 
+                        value={resetCount}
+                        onChange={(e) => setResetCount(e.target.value)}
+                        className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
+                        placeholder="ระบุจำนวนครั้ง"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">ชื่อผู้ใช้ไฟฟ้า</label>
-                        <input 
-                          type="text" 
-                          value={customerName}
-                          onChange={(e) => setCustomerName(e.target.value)}
+                        <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">ประจำเดือน</label>
+                        <select 
+                          value={readingMonth}
+                          onChange={(e) => setReadingMonth(e.target.value)}
                           className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
-                          placeholder="ระบุชื่อ"
-                        />
+                        >
+                          {MONTHS_TH.map((m, i) => (
+                            <option key={i+1} value={i+1}>{m}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
-                        <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">หมายเลขผู้ใช้ไฟฟ้า</label>
-                        <input 
-                          type="text" 
-                          value={customerNumber}
-                          onChange={(e) => setCustomerNumber(e.target.value)}
+                        <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">ปี พ.ศ.</label>
+                        <select 
+                          value={readingYear}
+                          onChange={(e) => setReadingYear(e.target.value)}
                           className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
-                          placeholder="ระบุหมายเลข"
-                        />
+                        >
+                          {Array.from({ length: 5 }).map((_, i) => {
+                            const year = new Date().getFullYear() + 543 - i;
+                            return <option key={year} value={year.toString()}>{year}</option>;
+                          })}
+                        </select>
                       </div>
-                      <div>
-                        <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">หมายเลขมิเตอร์ PEA</label>
-                        <input 
-                          type="text" 
-                          value={peaMeterNumber}
-                          onChange={(e) => setPeaMeterNumber(e.target.value)}
-                          className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
-                          placeholder="ระบุหมายเลขมิเตอร์"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">ประจำเดือน</label>
-                          <select 
-                            value={readingMonth}
-                            onChange={(e) => setReadingMonth(e.target.value)}
-                            className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
-                          >
-                            {MONTHS_TH.map((m, i) => (
-                              <option key={i+1} value={i+1}>{m}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">ปี พ.ศ.</label>
-                          <select 
-                            value={readingYear}
-                            onChange={(e) => setReadingYear(e.target.value)}
-                            className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
-                          >
-                            {Array.from({ length: 5 }).map((_, i) => {
-                              const year = new Date().getFullYear() + 543 - i;
-                              return <option key={year} value={year.toString()}>{year}</option>;
-                            })}
-                          </select>
-                        </div>
-                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider text-black/40 mb-1 block">วันที่จดหน่วย</label>
+                      <input 
+                        type="date" 
+                        value={readingDate}
+                        onChange={(e) => setReadingDate(e.target.value)}
+                        className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black transition-all"
+                      />
                     </div>
                   </div>
+                </motion.div>
 
-                  <div className="bg-white rounded-3xl p-8 shadow-sm border border-black/5 space-y-6">
-                    <h2 className="text-lg font-bold flex items-center gap-2">
-                      <Info size={20} /> ผลการวิเคราะห์
-                    </h2>
-                    
-                    {/* Customer Info Summary */}
-                    <div className="bg-[#F5F5F0] rounded-2xl p-4 border border-black/5 space-y-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-black/30">สรุปข้อมูลผู้ใช้ไฟฟ้า</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <p className="text-xs text-black/40">ชื่อผู้ใช้</p>
-                          <p className="text-sm font-bold truncate">{customerName || '-'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-black/40">หมายเลขผู้ใช้</p>
-                          <p className="text-sm font-bold truncate">{customerNumber || '-'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-black/40">หมายเลขมิเตอร์</p>
-                          <p className="text-sm font-bold truncate">{peaMeterNumber || '-'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-black/40">งวดเดือน/ปี</p>
-                          <p className="text-sm font-bold truncate">{MONTHS_TH[parseInt(readingMonth)-1]} {readingYear}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <AnalysisItem 
-                        label="111 vs (010+020+030)" 
-                        match={currentData.analysis?.sumPeakMatch} 
-                      />
-                      <AnalysisItem 
-                        label="015 (Diff) vs 050" 
-                        match={currentData.analysis?.diff015Match} 
-                      />
-                      <AnalysisItem 
-                        label="016 (Diff) vs 060" 
-                        match={currentData.analysis?.diff016Match} 
-                      />
-                      <AnalysisItem 
-                        label="017 (Diff) vs 070" 
-                        match={currentData.analysis?.diff017Match} 
-                      />
-                      <AnalysisItem 
-                        label="118 (Diff) vs 280" 
-                        match={currentData.analysis?.diff118Match} 
-                      />
-                    </div>
-                    <button 
-                      onClick={handleSave}
-                      className="w-full bg-[#141414] text-white rounded-xl py-4 font-bold flex items-center justify-center gap-2 hover:bg-black/90 transition-all mt-4"
+                {/* Analysis Section (Visible after processing) */}
+                <AnimatePresence>
+                  {currentData && (
+                    <motion.div 
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 20 }}
+                      className="bg-white rounded-3xl p-8 shadow-sm border border-black/5 space-y-6"
                     >
-                      <Save size={20} /> บันทึกข้อมูล
-                    </button>
-                  </div>
-                </motion.section>
-              )}
+                      <h2 className="text-lg font-bold flex items-center gap-2">
+                        <Info size={20} /> ผลการวิเคราะห์
+                      </h2>
+                      
+                      {/* Customer Info Summary */}
+                      <div className="bg-[#F5F5F0] rounded-2xl p-4 border border-black/5 space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-black/30">สรุปข้อมูลผู้ใช้ไฟฟ้า</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <p className="text-xs text-black/40">ชื่อผู้ใช้</p>
+                            <p className="text-sm font-bold truncate">{customerName || '-'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-black/40">หมายเลขผู้ใช้</p>
+                            <p className="text-sm font-bold truncate">{customerNumber || '-'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-black/40">หมายเลขมิเตอร์</p>
+                            <p className="text-sm font-bold truncate">{peaMeterNumber || '-'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-black/40">จำนวนครั้งที่ RESET</p>
+                            <p className="text-sm font-bold truncate">{resetCount || '-'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-black/40">งวดเดือน/ปี</p>
+                            <p className="text-sm font-bold truncate">{MONTHS_TH[parseInt(readingMonth)-1]} {readingYear}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-black/40">วันที่จดหน่วย</p>
+                            <p className="text-sm font-bold truncate">{new Date(readingDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <AnalysisItem 
+                          label="111 vs (010+020+030)" 
+                          match={currentData.analysis?.sumPeakMatch} 
+                        />
+                        <AnalysisItem 
+                          label="015 (Diff) vs 050" 
+                          match={currentData.analysis?.diff015Match} 
+                        />
+                        <AnalysisItem 
+                          label="016 (Diff) vs 060" 
+                          match={currentData.analysis?.diff016Match} 
+                        />
+                        <AnalysisItem 
+                          label="017 (Diff) vs 070" 
+                          match={currentData.analysis?.diff017Match} 
+                        />
+                        <AnalysisItem 
+                          label="118 (Diff) vs 280" 
+                          match={currentData.analysis?.diff118Match} 
+                        />
+                      </div>
+                      <button 
+                        onClick={handleSave}
+                        className="w-full bg-[#141414] text-white rounded-xl py-4 font-bold flex items-center justify-center gap-2 hover:bg-black/90 transition-all mt-4"
+                      >
+                        <Save size={20} /> บันทึกข้อมูล
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </motion.div>
           )}
 
@@ -635,8 +680,10 @@ export default function App() {
                     customerName: formData.get('customerName') as string,
                     customerNumber: formData.get('customerNumber') as string,
                     peaMeterNumber: formData.get('peaMeterNumber') as string,
+                    resetCount: formData.get('resetCount') as string,
                     readingMonth: formData.get('readingMonth') as string,
                     readingYear: formData.get('readingYear') as string,
+                    readingDate: formData.get('readingDate') as string,
                     readings: updatedReadings
                   };
                   updateHistoryItem(updatedItem);
@@ -662,6 +709,10 @@ export default function App() {
                         <input name="customerName" defaultValue={selectedHistory.customerName} className="w-full text-sm font-bold bg-[#F5F5F0] rounded-lg px-3 py-2 border-none focus:ring-1 focus:ring-black" />
                         <input name="customerNumber" defaultValue={selectedHistory.customerNumber} className="w-full text-sm font-bold bg-[#F5F5F0] rounded-lg px-3 py-2 border-none focus:ring-1 focus:ring-black" />
                         <input name="peaMeterNumber" defaultValue={selectedHistory.peaMeterNumber} className="w-full text-sm font-bold bg-[#F5F5F0] rounded-lg px-3 py-2 border-none focus:ring-1 focus:ring-black" />
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-black/40 block">จำนวนครั้งที่ RESET</label>
+                          <input name="resetCount" defaultValue={selectedHistory.resetCount} className="w-full text-sm font-bold bg-[#F5F5F0] rounded-lg px-3 py-2 border-none focus:ring-1 focus:ring-black" />
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                           <select name="readingMonth" defaultValue={selectedHistory.readingMonth} className="w-full text-xs bg-[#F5F5F0] rounded-lg px-2 py-2 border-none focus:ring-1 focus:ring-black">
                             {MONTHS_TH.map((m, i) => (
@@ -674,6 +725,10 @@ export default function App() {
                               return <option key={year} value={year.toString()}>{year}</option>;
                             })}
                           </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-black/40 mb-1 block">วันที่จดหน่วย</label>
+                          <input type="date" name="readingDate" defaultValue={selectedHistory.readingDate} className="w-full text-xs bg-[#F5F5F0] rounded-lg px-2 py-2 border-none focus:ring-1 focus:ring-black" />
                         </div>
                       </div>
                     ) : (
@@ -691,8 +746,18 @@ export default function App() {
                           <p className="text-xs text-black/40">หมายเลขมิเตอร์ PEA</p>
                         </div>
                         <div>
-                          <p className="text-sm font-bold">{MONTHS_TH[parseInt(selectedHistory.readingMonth)-1]} {selectedHistory.readingYear}</p>
-                          <p className="text-xs text-black/40">งวดเดือน/ปี</p>
+                          <p className="text-sm font-bold">{selectedHistory.resetCount || '-'}</p>
+                          <p className="text-xs text-black/40">จำนวนครั้งที่ RESET</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <p className="text-sm font-bold">{MONTHS_TH[parseInt(selectedHistory.readingMonth)-1]} {selectedHistory.readingYear}</p>
+                            <p className="text-xs text-black/40">งวดเดือน/ปี</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold">{new Date(selectedHistory.readingDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                            <p className="text-xs text-black/40">วันที่จดหน่วย</p>
+                          </div>
                         </div>
                       </>
                     )}

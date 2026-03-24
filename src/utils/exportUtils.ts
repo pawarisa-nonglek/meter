@@ -9,10 +9,12 @@ export const exportToExcel = (data: TOUData[]) => {
 
   const excelData = data.map((item, index) => ({
     'ลำดับ': index + 1,
+    'วันที่จดหน่วย': item.readingDate ? new Date(item.readingDate).toLocaleDateString('th-TH') : '-',
     'งวดเดือน/ปี': `${MONTHS_TH[parseInt(item.readingMonth) - 1]} ${item.readingYear}`,
     'ชื่อผู้ใช้ไฟฟ้า': item.customerName,
     'หมายเลขผู้ใช้ไฟฟ้า': item.customerNumber,
     'หมายเลขมิเตอร์ PEA': item.peaMeterNumber,
+    'จำนวนครั้งที่ RESET': item.resetCount || '-',
     'ผลการตรวจสอบ (111)': item.analysis.sumPeakMatch ? "ถูกต้อง" : "ไม่ตรงกัน",
     '015 vs 050': item.analysis.diff015Match ? "ถูกต้อง" : "ไม่ตรงกัน",
     '016 vs 060': item.analysis.diff016Match ? "ถูกต้อง" : "ไม่ตรงกัน",

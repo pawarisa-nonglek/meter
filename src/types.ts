@@ -11,6 +11,8 @@ export interface TOUData {
   peaMeterNumber: string;
   readingMonth: string;
   readingYear: string;
+  readingDate: string;
+  resetCount: string;
   readings: {
     [key: string]: {
       handwritten?: number;
