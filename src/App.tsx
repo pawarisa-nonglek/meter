@@ -1,5 +1,4 @@
-import * as React from 'react';
-import { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { 
   Camera, 
@@ -17,13 +16,86 @@ import {
   Loader2,
   Download,
   Calendar,
+  LogIn,
+  LogOut,
   AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TOUData, TOU_CODES } from './types';
 import { exportToExcel } from './utils/exportUtils';
+import { db, auth } from './firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  orderBy,
+  getDocFromServer
+} from 'firebase/firestore';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  signOut,
+  User
+} from 'firebase/auth';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+// --- Firestore Error Handling ---
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 // --- Error Boundary ---
 interface ErrorBoundaryProps {
@@ -37,6 +109,8 @@ interface ErrorBoundaryState {
 
 function AppContent() {
   const [view, setView] = useState<'main' | 'history' | 'detail'>('main');
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [image, setImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentData, setCurrentData] = useState<Partial<TOUData> | null>(null);
@@ -58,35 +132,98 @@ function AppContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const savedHistory = localStorage.getItem('tou_history');
-    if (savedHistory) {
-      try {
-        setHistory(JSON.parse(savedHistory));
-      } catch (e) {
-        console.error("Failed to parse history", e);
-      }
-    }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
   }, []);
 
-  const saveToHistory = (data: TOUData) => {
-    const newHistory = [data, ...history];
-    setHistory(newHistory);
-    localStorage.setItem('tou_history', JSON.stringify(newHistory));
+  useEffect(() => {
+    if (!isAuthReady || !user) {
+      setHistory([]);
+      return;
+    }
+
+    const path = 'tou_history';
+    const q = query(collection(db, path), orderBy('timestamp', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as TOUData[];
+      setHistory(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+
+    return () => unsubscribe();
+  }, [isAuthReady, user]);
+
+  // Test connection
+  useEffect(() => {
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    }
+    testConnection();
+  }, []);
+
+  const login = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Login failed", error);
+    }
   };
 
-  const deleteHistoryItem = (id: string) => {
-    const newHistory = history.filter(item => item.id !== id);
-    setHistory(newHistory);
-    localStorage.setItem('tou_history', JSON.stringify(newHistory));
-    setDeleteConfirmId(null);
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setView('main');
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
   };
 
-  const updateHistoryItem = (updatedItem: TOUData) => {
-    const newHistory = history.map(item => item.id === updatedItem.id ? updatedItem : item);
-    setHistory(newHistory);
-    localStorage.setItem('tou_history', JSON.stringify(newHistory));
-    setSelectedHistory(updatedItem);
-    setIsEditing(false);
+  const saveToHistory = async (data: TOUData) => {
+    const path = 'tou_history';
+    try {
+      // Remove id from data before adding to Firestore (Firestore will generate its own ID)
+      const { id, ...dataToSave } = data;
+      await addDoc(collection(db, path), dataToSave);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  };
+
+  const deleteHistoryItem = async (id: string) => {
+    const path = `tou_history/${id}`;
+    try {
+      await deleteDoc(doc(db, 'tou_history', id));
+      setDeleteConfirmId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  };
+
+  const updateHistoryItem = async (updatedItem: TOUData) => {
+    const path = `tou_history/${updatedItem.id}`;
+    try {
+      const { id, ...dataToUpdate } = updatedItem;
+      await updateDoc(doc(db, 'tou_history', id), dataToUpdate);
+      setSelectedHistory(updatedItem);
+      setIsEditing(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -274,25 +411,71 @@ function AppContent() {
             </div>
             TOU Meter Reader
           </h1>
-          <div className="flex gap-4">
-            <button 
-              onClick={() => setView('main')}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${view === 'main' ? 'bg-[#141414] text-white' : 'hover:bg-black/5'}`}
-            >
-              อ่านหน่วย
-            </button>
-            <button 
-              onClick={() => setView('history')}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${view === 'history' ? 'bg-[#141414] text-white' : 'hover:bg-black/5'}`}
-            >
-              ประวัติ
-            </button>
+          <div className="flex gap-4 items-center">
+            {user ? (
+              <>
+                <button 
+                  onClick={() => setView('main')}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${view === 'main' ? 'bg-[#141414] text-white' : 'hover:bg-black/5'}`}
+                >
+                  อ่านหน่วย
+                </button>
+                <button 
+                  onClick={() => setView('history')}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${view === 'history' ? 'bg-[#141414] text-white' : 'hover:bg-black/5'}`}
+                >
+                  ประวัติ
+                </button>
+                <button 
+                  onClick={logout}
+                  className="p-2 text-black/40 hover:text-rose-500 transition-colors"
+                  title="ออกจากระบบ"
+                >
+                  <LogOut size={20} />
+                </button>
+              </>
+            ) : (
+              <button 
+                onClick={login}
+                className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-white rounded-full text-sm font-medium hover:bg-black/90 transition-all"
+              >
+                <LogIn size={16} /> เข้าสู่ระบบ
+              </button>
+            )}
           </div>
         </div>
       </nav>
 
       <main className="max-w-4xl mx-auto p-6">
-        <AnimatePresence mode="wait">
+        {!isAuthReady && (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <Loader2 className="animate-spin text-black/20" size={40} />
+            <p className="text-black/40 font-medium">กำลังโหลด...</p>
+          </div>
+        )}
+        {isAuthReady && !user && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-3xl p-12 shadow-sm border border-black/5 text-center space-y-6"
+          >
+            <div className="w-20 h-20 bg-[#F5F5F0] rounded-full flex items-center justify-center mx-auto text-black/20">
+              <LogIn size={40} />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold">กรุณาเข้าสู่ระบบ</h2>
+              <p className="text-black/40 max-w-xs mx-auto">เข้าสู่ระบบด้วย Google เพื่อซิงค์ข้อมูลและดูประวัติการอ่านมิเตอร์จากทุกอุปกรณ์</p>
+            </div>
+            <button 
+              onClick={login}
+              className="bg-[#141414] text-white px-8 py-4 rounded-2xl font-bold hover:bg-black/90 transition-all shadow-lg"
+            >
+              เข้าสู่ระบบด้วย Google
+            </button>
+          </motion.div>
+        )}
+        {isAuthReady && user && (
+          <AnimatePresence mode="wait">
           {view === 'main' && (
             <motion.div 
               key="main"
@@ -840,6 +1023,7 @@ function AppContent() {
             </motion.div>
           )}
         </AnimatePresence>
+        )}
       </main>
 
       {/* Delete Confirmation Modal */}
