@@ -1,0 +1,30 @@
+{
+  "entities": {
+    "TOUData": {
+      "title": "TOU Meter Reading Data",
+      "description": "Data extracted from a TOU meter image including customer info and readings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "customerName": { "type": "string" },
+        "customerNumber": { "type": "string" },
+        "peaMeterNumber": { "type": "string" },
+        "readingMonth": { "type": "string" },
+        "readingYear": { "type": "string" },
+        "readingDate": { "type": "string" },
+        "resetCount": { "type": "string" },
+        "readings": { "type": "object" },
+        "analysis": { "type": "object" },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "customerName", "customerNumber", "peaMeterNumber"]
+    }
+  },
+  "firestore": {
+    "tou_history": {
+      "schema": "TOUData",
+      "description": "Collection of TOU meter readings"
+    }
+  }
+}

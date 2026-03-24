@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: tou_history
+    // Document ID: auto-generated or timestamp-based
+    // Fields:
+    //   - id: string (required)
+    //   - timestamp: number (required)
+    //   - customerName: string (required)
+    //   - customerNumber: string (required)
+    //   - peaMeterNumber: string (required)
+    //   - readingMonth: string
+    //   - readingYear: string
+    //   - readingDate: string
+    //   - resetCount: string
+    //   - readings: map
+    //   - analysis: map
+    //   - imageUrl: string
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "Pawarisa.nonglek@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // Validation Functions
+    function isValidTOUData(data) {
+      return data.id is string &&
+             data.timestamp is number &&
+             data.customerName is string && data.customerName.size() < 200 &&
+             data.customerNumber is string && data.customerNumber.size() < 100 &&
+             data.peaMeterNumber is string && data.peaMeterNumber.size() < 100;
+    }
+
+    match /tou_history/{docId} {
+      // For this app, we allow all authenticated users to read and write
+      // to the history to enable cross-device syncing.
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidTOUData(request.resource.data);
+      allow update: if isAuthenticated() && isValidTOUData(request.resource.data);
+      allow delete: if isAuthenticated();
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+  }
+}
