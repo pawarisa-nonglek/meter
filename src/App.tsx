@@ -43,6 +43,8 @@ import {
   User
 } from 'firebase/auth';
 
+import firebaseConfig from '../firebase-applet-config.json';
+
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // --- Firestore Error Handling ---
@@ -111,6 +113,8 @@ function AppContent() {
   const [view, setView] = useState<'main' | 'history' | 'detail'>('main');
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [image, setImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentData, setCurrentData] = useState<Partial<TOUData> | null>(null);
@@ -132,6 +136,9 @@ function AppContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes('TODO')) {
+      setLoginError("Firebase configuration is missing or incomplete. Please check firebase-applet-config.json.");
+    }
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setIsAuthReady(true);
@@ -176,11 +183,22 @@ function AppContent() {
   }, []);
 
   const login = async () => {
+    setIsLoggingIn(true);
+    setLoginError(null);
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed", error);
+      if (error.code === 'auth/popup-blocked') {
+        setLoginError("เบราว์เซอร์ของคุณบล็อกป๊อปอัพ กรุณาอนุญาตป๊อปอัพสำหรับเว็บไซต์นี้");
+      } else if (error.code === 'auth/unauthorized-domain') {
+        setLoginError("โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Console กรุณาเพิ่มโดเมนนี้ใน Authorized Domains");
+      } else {
+        setLoginError("เกิดข้อผิดพลาดในการเข้าสู่ระบบ: " + (error.message || "โปรดลองอีกครั้ง"));
+      }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -437,9 +455,15 @@ function AppContent() {
             ) : (
               <button 
                 onClick={login}
-                className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-white rounded-full text-sm font-medium hover:bg-black/90 transition-all"
+                disabled={isLoggingIn}
+                className={`flex items-center gap-2 px-4 py-2 bg-[#141414] text-white rounded-full text-sm font-medium transition-all ${isLoggingIn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-black/90'}`}
               >
-                <LogIn size={16} /> เข้าสู่ระบบ
+                {isLoggingIn ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <LogIn size={16} />
+                )}
+                {isLoggingIn ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
               </button>
             )}
           </div>
@@ -466,12 +490,35 @@ function AppContent() {
               <h2 className="text-2xl font-bold">กรุณาเข้าสู่ระบบ</h2>
               <p className="text-black/40 max-w-xs mx-auto">เข้าสู่ระบบด้วย Google เพื่อซิงค์ข้อมูลและดูประวัติการอ่านมิเตอร์จากทุกอุปกรณ์</p>
             </div>
+            {loginError && (
+              <div className="bg-rose-50 text-rose-600 p-4 rounded-xl text-sm font-medium flex items-center gap-2">
+                <AlertCircle size={16} className="shrink-0" />
+                <p>{loginError}</p>
+              </div>
+            )}
             <button 
               onClick={login}
-              className="bg-[#141414] text-white px-8 py-4 rounded-2xl font-bold hover:bg-black/90 transition-all shadow-lg"
+              disabled={isLoggingIn}
+              className={`w-full bg-[#141414] text-white px-8 py-4 rounded-2xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 ${isLoggingIn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-black/90'}`}
             >
-              เข้าสู่ระบบด้วย Google
+              {isLoggingIn ? (
+                <>
+                  <Loader2 className="animate-spin" size={20} />
+                  กำลังเข้าสู่ระบบ...
+                </>
+              ) : (
+                <>
+                  เข้าสู่ระบบด้วย Google
+                </>
+              )}
             </button>
+            <div className="pt-4 border-t border-black/5">
+              <p className="text-[10px] text-black/30 leading-relaxed">
+                หากกดปุ่มไม่ได้ หรือไม่มีอะไรเกิดขึ้น: <br />
+                1. ตรวจสอบว่าเบราว์เซอร์ไม่ได้บล็อกป๊อปอัพ <br />
+                2. ตรวจสอบว่าได้เพิ่มโดเมน <span className="font-mono bg-black/5 px-1 rounded">{window.location.hostname}</span> ใน Authorized Domains ของ Firebase แล้ว
+              </p>
+            </div>
           </motion.div>
         )}
         {isAuthReady && user && (
