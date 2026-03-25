@@ -23,98 +23,11 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { TOUData, TOU_CODES } from './types';
 import { exportToExcel } from './utils/exportUtils';
-import { db, auth } from './firebase';
-import { 
-  collection, 
-  onSnapshot, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  query, 
-  orderBy,
-  getDocFromServer
-} from 'firebase/firestore';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged, 
-  signOut,
-  User
-} from 'firebase/auth';
-
-import firebaseConfig from '../firebase-applet-config.json';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// --- Firestore Error Handling ---
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
-
-// --- Error Boundary ---
-interface ErrorBoundaryProps {
-  children: ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
-
 function AppContent() {
   const [view, setView] = useState<'main' | 'history' | 'detail'>('main');
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
   const [image, setImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentData, setCurrentData] = useState<Partial<TOUData> | null>(null);
@@ -136,112 +49,35 @@ function AppContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes('TODO')) {
-      setLoginError("Firebase configuration is missing or incomplete. Please check firebase-applet-config.json.");
-    }
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!isAuthReady || !user) {
-      setHistory([]);
-      return;
-    }
-
-    const path = 'tou_history';
-    const q = query(collection(db, path), orderBy('timestamp', 'desc'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        id: doc.id
-      })) as TOUData[];
-      setHistory(data);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
-    });
-
-    return () => unsubscribe();
-  }, [isAuthReady, user]);
-
-  // Test connection
-  useEffect(() => {
-    async function testConnection() {
+    const savedHistory = localStorage.getItem('tou_history');
+    if (savedHistory) {
       try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
-        }
+        setHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error("Failed to parse history", e);
       }
     }
-    testConnection();
   }, []);
 
-  const login = async () => {
-    setIsLoggingIn(true);
-    setLoginError(null);
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      console.error("Login failed", error);
-      if (error.code === 'auth/popup-blocked') {
-        setLoginError("เบราว์เซอร์ของคุณบล็อกป๊อปอัพ กรุณาอนุญาตป๊อปอัพสำหรับเว็บไซต์นี้");
-      } else if (error.code === 'auth/unauthorized-domain') {
-        setLoginError("โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Console กรุณาเพิ่มโดเมนนี้ใน Authorized Domains");
-      } else {
-        setLoginError("เกิดข้อผิดพลาดในการเข้าสู่ระบบ: " + (error.message || "โปรดลองอีกครั้ง"));
-      }
-    } finally {
-      setIsLoggingIn(false);
-    }
+  const saveToHistory = (data: TOUData) => {
+    const newHistory = [data, ...history];
+    setHistory(newHistory);
+    localStorage.setItem('tou_history', JSON.stringify(newHistory));
   };
 
-  const logout = async () => {
-    try {
-      await signOut(auth);
-      setView('main');
-    } catch (error) {
-      console.error("Logout failed", error);
-    }
+  const deleteHistoryItem = (id: string) => {
+    const newHistory = history.filter(item => item.id !== id);
+    setHistory(newHistory);
+    localStorage.setItem('tou_history', JSON.stringify(newHistory));
+    setDeleteConfirmId(null);
   };
 
-  const saveToHistory = async (data: TOUData) => {
-    const path = 'tou_history';
-    try {
-      // Remove id from data before adding to Firestore (Firestore will generate its own ID)
-      const { id, ...dataToSave } = data;
-      await addDoc(collection(db, path), dataToSave);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
-    }
-  };
-
-  const deleteHistoryItem = async (id: string) => {
-    const path = `tou_history/${id}`;
-    try {
-      await deleteDoc(doc(db, 'tou_history', id));
-      setDeleteConfirmId(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
-    }
-  };
-
-  const updateHistoryItem = async (updatedItem: TOUData) => {
-    const path = `tou_history/${updatedItem.id}`;
-    try {
-      const { id, ...dataToUpdate } = updatedItem;
-      await updateDoc(doc(db, 'tou_history', id), dataToUpdate);
-      setSelectedHistory(updatedItem);
-      setIsEditing(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
-    }
+  const updateHistoryItem = (updatedItem: TOUData) => {
+    const newHistory = history.map(item => item.id === updatedItem.id ? updatedItem : item);
+    setHistory(newHistory);
+    localStorage.setItem('tou_history', JSON.stringify(newHistory));
+    setSelectedHistory(updatedItem);
+    setIsEditing(false);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -430,99 +266,24 @@ function AppContent() {
             TOU Meter Reader
           </h1>
           <div className="flex gap-4 items-center">
-            {user ? (
-              <>
-                <button 
-                  onClick={() => setView('main')}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${view === 'main' ? 'bg-[#141414] text-white' : 'hover:bg-black/5'}`}
-                >
-                  อ่านหน่วย
-                </button>
-                <button 
-                  onClick={() => setView('history')}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${view === 'history' ? 'bg-[#141414] text-white' : 'hover:bg-black/5'}`}
-                >
-                  ประวัติ
-                </button>
-                <button 
-                  onClick={logout}
-                  className="p-2 text-black/40 hover:text-rose-500 transition-colors"
-                  title="ออกจากระบบ"
-                >
-                  <LogOut size={20} />
-                </button>
-              </>
-            ) : (
-              <button 
-                onClick={login}
-                disabled={isLoggingIn}
-                className={`flex items-center gap-2 px-4 py-2 bg-[#141414] text-white rounded-full text-sm font-medium transition-all ${isLoggingIn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-black/90'}`}
-              >
-                {isLoggingIn ? (
-                  <Loader2 className="animate-spin" size={16} />
-                ) : (
-                  <LogIn size={16} />
-                )}
-                {isLoggingIn ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
-              </button>
-            )}
+            <button 
+              onClick={() => setView('main')}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${view === 'main' ? 'bg-[#141414] text-white' : 'hover:bg-black/5'}`}
+            >
+              อ่านหน่วย
+            </button>
+            <button 
+              onClick={() => setView('history')}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${view === 'history' ? 'bg-[#141414] text-white' : 'hover:bg-black/5'}`}
+            >
+              ประวัติ
+            </button>
           </div>
         </div>
       </nav>
 
       <main className="max-w-4xl mx-auto p-6">
-        {!isAuthReady && (
-          <div className="flex flex-col items-center justify-center py-20 gap-4">
-            <Loader2 className="animate-spin text-black/20" size={40} />
-            <p className="text-black/40 font-medium">กำลังโหลด...</p>
-          </div>
-        )}
-        {isAuthReady && !user && (
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-3xl p-12 shadow-sm border border-black/5 text-center space-y-6"
-          >
-            <div className="w-20 h-20 bg-[#F5F5F0] rounded-full flex items-center justify-center mx-auto text-black/20">
-              <LogIn size={40} />
-            </div>
-            <div className="space-y-2">
-              <h2 className="text-2xl font-bold">กรุณาเข้าสู่ระบบ</h2>
-              <p className="text-black/40 max-w-xs mx-auto">เข้าสู่ระบบด้วย Google เพื่อซิงค์ข้อมูลและดูประวัติการอ่านมิเตอร์จากทุกอุปกรณ์</p>
-            </div>
-            {loginError && (
-              <div className="bg-rose-50 text-rose-600 p-4 rounded-xl text-sm font-medium flex items-center gap-2">
-                <AlertCircle size={16} className="shrink-0" />
-                <p>{loginError}</p>
-              </div>
-            )}
-            <button 
-              onClick={login}
-              disabled={isLoggingIn}
-              className={`w-full bg-[#141414] text-white px-8 py-4 rounded-2xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 ${isLoggingIn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-black/90'}`}
-            >
-              {isLoggingIn ? (
-                <>
-                  <Loader2 className="animate-spin" size={20} />
-                  กำลังเข้าสู่ระบบ...
-                </>
-              ) : (
-                <>
-                  เข้าสู่ระบบด้วย Google
-                </>
-              )}
-            </button>
-            <div className="pt-4 border-t border-black/5">
-              <p className="text-[10px] text-black/30 leading-relaxed">
-                หากกดปุ่มไม่ได้ หรือไม่มีอะไรเกิดขึ้น: <br />
-                1. ตรวจสอบว่าเบราว์เซอร์ไม่ได้บล็อกป๊อปอัพ <br />
-                2. ตรวจสอบว่าได้เพิ่มโดเมน <span className="font-mono bg-black/5 px-1 rounded">{window.location.hostname}</span> ใน Authorized Domains ของ Firebase แล้ว
-              </p>
-            </div>
-          </motion.div>
-        )}
-        {isAuthReady && user && (
-          <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait">
           {view === 'main' && (
             <motion.div 
               key="main"
@@ -1070,7 +831,6 @@ function AppContent() {
             </motion.div>
           )}
         </AnimatePresence>
-        )}
       </main>
 
       {/* Delete Confirmation Modal */}
